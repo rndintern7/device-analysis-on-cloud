@@ -19,10 +19,12 @@ TEMP_DELTA_FIXED = 89.85
 
 def get_mtrol_standards(device_name, parameter_name):
     clean_name = re.sub(r'[^a-zA-Z0-9]', '', str(parameter_name)).lower()
+    # Mtrol 4 Standards
     if "4" in device_name:
         if "flow" in clean_name: return 0.0, 500.0
         if "opening" in clean_name: return 0.0, 100.0
         if "p1" in clean_name or "p2" in clean_name: return 0.0, 17.0
+    # Mtrol 3 Standards
     else:
         if "flow" in clean_name: return 0.0, 200.0
         if "opening" in clean_name: return 0.0, 100.0
@@ -94,15 +96,14 @@ if uploaded_file is not None:
                 line=dict(color="#FFD700", width=1.5, dash='dot')
             ), secondary_y=True)
 
-            # --- UPDATED AXIS RANGES (Both set to 100) ---
+            # --- UPDATED AXIS RANGE ---
             fig.update_layout(
                 title=f"<b>Full-Cycle Stability: {selected_param}</b>",
                 template="plotly_dark", height=600,
                 xaxis=dict(title="Time", rangeslider=dict(visible=True, thickness=0.05)),
-                # Locked PPM Axis
+                # Primary Y-axis (PPM) locked to 0-100
                 yaxis=dict(title="Calculated PPM (Stability)", range=[0, 100]), 
-                # Locked Temperature Axis
-                yaxis2=dict(title="Chamber Temp (°C)", side='right', range=[0, 100]),
+                yaxis2=dict(title="Chamber Temp (°C)", side='right'),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -112,8 +113,10 @@ if uploaded_file is not None:
             col1, col2, col3 = st.columns(3)
             col1.metric("Final PPM", f"{valid_df['PPM_Stability'].iloc[-1]:.2f}")
             col2.metric("Max Drift", f"{drift_delta.max():.4f}")
-            col3.info(f"Y-Axes locked to 100 for standardization.")
+            col3.info(f"Y-Axis locked to 100 PPM for standardization.")
 
+            with st.expander(f"🔍 View Calculation Breakdown"):
+                st.latex(rf"PPM = \frac{{{drift_delta.max():.4f} \times 1,000,000}}{{89.85 \times {ref_range}}}")
         else:
             st.warning("Reference range missing.")
     else:
