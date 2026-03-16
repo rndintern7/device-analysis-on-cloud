@@ -52,7 +52,8 @@ def load_and_clean_data(file):
 
 # --- MAIN UI ---
 st.title("Mtrol Full-Cycle Stability Dashboard")
-st.markdown(f"**Standardized Formula:** $PPM = \\frac{(\Delta Input) \\times 1,000,000}{89.85 \\times (Ref Range)}$")
+# Fixed Line 55: Added 'r' before string to handle LaTeX \Delta properly
+st.markdown(r"**Standardized Formula:** $PPM = \frac{(\Delta Input) \times 1,000,000}{89.85 \times (Ref Range)}$")
 
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
 
@@ -110,7 +111,7 @@ if uploaded_file is not None:
                 st.write(f"**Step 1:** Drift = ({current_max.iloc[-1]} - {current_min.iloc[-1]}) = **{final_drift:.4f}**")
                 st.write(f"**Step 2:** Ref Scale ({plot_col}) = **{ref_range}**")
                 st.write(f"**Step 3:** Fixed Temp Delta = **89.85**")
-                st.write(f"**Final:** ({final_drift:.4f} * 1,000,000) / ({TEMP_DELTA_FIXED} * {ref_range}) = **{final_ppm:.2f} PPM**")
+                st.latex(rf"PPM = \frac{{{final_drift:.4f} \times 1,000,000}}{{89.85 \times {ref_range}}} = {final_ppm:.2f}")
 
             # --- DATA TABLE ---
             st.subheader("📋 Detailed PPM Log")
