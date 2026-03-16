@@ -15,23 +15,22 @@ else:
     st.sidebar.title("Mtrol Analytics")
 
 # --- CONSTANTS ---
-TEMP_DELTA_FIXED = 89.85  # Range: -20.175 to 69.675
+TEMP_DELTA_FIXED = 89.85  # Standardized denominator for temperature
 
 def get_mtrol_standards(device_name, parameter_name):
-    """Returns (min, max) based on Mtrol 3/4 specific specs."""
+    """Assigns the Reference Range (Denominator) based on your specs."""
     clean_name = re.sub(r'[^a-zA-Z0-9]', '', str(parameter_name)).lower()
     
-    # Mtrol 4 Standards
+    # Mtrol 4 (From your mt4.png)
     if "4" in device_name:
         if "flow" in clean_name: return 0.0, 500.0
         if "opening" in clean_name: return 0.0, 100.0
         if "p1" in clean_name or "p2" in clean_name: return 0.0, 17.0
-    # Mtrol 3 Standards
+    # Mtrol 3 (From your mt3.png)
     else:
         if "flow" in clean_name: return 0.0, 200.0
         if "opening" in clean_name: return 0.0, 100.0
         if "p1" in clean_name or "p2" in clean_name: return 0.0, 17.0
-        
     return None, None
 
 # --- DATA CLEANING ---
@@ -46,80 +45,96 @@ def load_and_clean_data(file):
     targets = ["flow", "opening", "p1", "p2", "temp", "chamber"]
     for col in df.columns:
         if col != time_col and any(t in col.lower() for t in targets):
-            # Clean numeric data (removes units/symbols)
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce')
     return df, time_col
 
 # --- MAIN UI ---
 st.title("Mtrol Full-Cycle Stability Dashboard")
-# Fixed Line 55: Added 'r' before string to handle LaTeX \Delta properly
-st.markdown(r"**Standardized Formula:** $PPM = \frac{(\Delta Input) \times 1,000,000}{89.85 \times (Ref Range)}$")
 
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
+st.sidebar.header("Analysis Settings")
+smooth_data = st.sidebar.toggle("Enable Signal Smoothing", value=True)
+window_size = st.sidebar.slider("Smoothing Window", 5, 100, 20) if smooth_data else 1
 
 if uploaded_file is not None:
     df, time_col = load_and_clean_data(uploaded_file)
-    
-    # Auto-detect device mode
     device_mode = "Mtrol 4" if "MT4" in uploaded_file.name.upper() else "Mtrol 3"
     st.sidebar.success(f"Mode: {device_mode}")
 
     temp_col = next((c for c in df.columns if "chamber" in c.lower() and "temp" in c.lower()), None)
-    params = [c for c in df.columns if any(t.lower() in c.lower() for t in ["flow", "opening", "p1", "p2"])]
+    
+    # Filter columns to only those we have standards for
+    available_params = [c for c in df.columns if any(t in c.lower() for t in ["flow", "opening", "p1", "p2"])]
 
-    if params and temp_col:
-        plot_col = st.sidebar.selectbox("Select Parameter to Analyze", params)
-        std_min, std_max = get_mtrol_standards(device_mode, plot_col)
+    if available_params and temp_col:
+        # THE SELECTOR: This drives the entire dashboard
+        selected_param = st.sidebar.selectbox("🎯 Select Parameter to Analyze", available_params)
+        
+        std_min, std_max = get_mtrol_standards(device_mode, selected_param)
+        ref_range = std_max - std_min
 
-        if std_min is not None and std_max is not None:
-            valid_df = df[[time_col, plot_col, temp_col]].dropna().copy()
+        if ref_range:
+            valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
             
             # --- CALCULATIONS ---
-            # Drift = Running Max - Running Min of your uploaded data
-            current_max = valid_df[plot_col].expanding().max()
-            current_min = valid_df[plot_col].expanding().min()
+            # Smoothing the selected parameter to remove jitter
+            raw_series = valid_df[selected_param]
+            clean_series = raw_series.rolling(window=window_size, center=True).mean() if smooth_data else raw_series
+            
+            # Drift = (Max found so far) - (Min found so far)
+            current_max = clean_series.expanding().max()
+            current_min = clean_series.expanding().min()
             drift_delta = current_max - current_min
             
-            ref_range = std_max - std_min
-            
-            # PPM Calculation
+            # Final PPM Logic
             valid_df['PPM_Stability'] = (drift_delta * 1000000) / (TEMP_DELTA_FIXED * ref_range)
             valid_df['PPM_Stability'] = valid_df['PPM_Stability'].replace([float('inf'), -float('inf')], 0).fillna(0)
 
-            # --- SUMMARY METRICS ---
-            st.subheader("📊 Stability Statistics")
-            final_drift = drift_delta.iloc[-1]
-            final_ppm = valid_df['PPM_Stability'].iloc[-1]
-            
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Final PPM Score", f"{final_ppm:.2f}")
-            m2.metric("Total Drift (Units)", f"{final_drift:.4f}")
-            m3.metric("Peak Value Found", f"{current_max.iloc[-1]:.3f}")
-            m4.metric("Min Value Found", f"{current_min.iloc[-1]:.3f}")
+            # --- METRICS ---
+            st.subheader(f"📊 {selected_param} Performance Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Final PPM", f"{valid_df['PPM_Stability'].iloc[-1]:.2f}")
+            col2.metric("Max Drift Observed", f"{drift_delta.max():.4f}")
+            col3.metric("Ref Range (Scale)", f"{ref_range}")
+            col4.metric("Cycle Temp Δ", f"{TEMP_DELTA_FIXED}°C")
 
-            # --- PLOTTING ---
+            # --- THE FULL CYCLE GRAPH ---
             fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df['PPM_Stability'], name="Stability (PPM)", line=dict(color="#00CCFF", width=2.5)), secondary_y=False)
-            fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Chamber Temp", line=dict(color="#FFD700", width=1, dash='dot')), secondary_y=True)
             
-            fig.update_layout(template="plotly_dark", height=500, xaxis=dict(rangeslider=dict(visible=True, thickness=0.05)),
-                            yaxis=dict(title="Calculated PPM"), yaxis2=dict(title="Temp (°C)", side='right'))
+            # Primary Axis: PPM Stability
+            fig.add_trace(go.Scattergl(
+                x=valid_df[time_col], y=valid_df['PPM_Stability'],
+                name=f"{selected_param} Stability (PPM)",
+                line=dict(color="#00CCFF", width=2.5)
+            ), secondary_y=False)
+
+            # Secondary Axis: Chamber Temperature
+            fig.add_trace(go.Scattergl(
+                x=valid_df[time_col], y=valid_df[temp_col],
+                name="Chamber Temp (°C)",
+                line=dict(color="#FFD700", width=1.5, dash='dot')
+            ), secondary_y=True)
+
+            fig.update_layout(
+                title=f"<b>Full-Cycle Stability: {selected_param}</b>",
+                template="plotly_dark", height=600,
+                xaxis=dict(title="Time", rangeslider=dict(visible=True, thickness=0.05)),
+                yaxis=dict(title="Calculated PPM (Stability)"),
+                yaxis2=dict(title="Chamber Temp (°C)", side='right'),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- MATH BREAKDOWN BOX ---
-            with st.expander("🔍 Click to see the Calculation Breakdown"):
-                st.write(f"**Step 1:** Drift = ({current_max.iloc[-1]} - {current_min.iloc[-1]}) = **{final_drift:.4f}**")
-                st.write(f"**Step 2:** Ref Scale ({plot_col}) = **{ref_range}**")
-                st.write(f"**Step 3:** Fixed Temp Delta = **89.85**")
-                st.latex(rf"PPM = \frac{{{final_drift:.4f} \times 1,000,000}}{{89.85 \times {ref_range}}} = {final_ppm:.2f}")
+            # --- MATH BREAKDOWN ---
+            with st.expander(f"🔍 View PPM Math for {selected_param}"):
+                st.write(f"**Step 1:** Your max value was {current_max.max():.4f} and min was {current_min.min():.4f}.")
+                st.write(f"**Step 2:** Total Drift = **{drift_delta.max():.4f}**")
+                st.write(f"**Step 3:** {selected_param} Reference Scale = **{ref_range}**")
+                st.latex(rf"PPM = \frac{{{drift_delta.max():.4f} \times 1,000,000}}{{89.85 \times {ref_range}}}")
 
-            # --- DATA TABLE ---
-            st.subheader("📋 Detailed PPM Log")
-            st.dataframe(valid_df.tail(100), use_container_width=True)
-            
         else:
-            st.warning(f"Standard range for {plot_col} not defined.")
+            st.warning(f"Could not find reference standards for {selected_param}.")
     else:
-        st.error("CSV must contain 'Chamber Temp' and Mtrol parameters.")
+        st.error("Could not detect Chamber Temp or Mtrol parameters in this file.")
 else:
-    st.info("👋 Ready to analyze. Please upload a Mtrol CSV file.")
+    st.info("Please upload a CSV file to see the parameter stability cycle.")
