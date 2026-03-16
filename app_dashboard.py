@@ -14,17 +14,26 @@ if os.path.exists("logo.png"):
 else:
     st.sidebar.title("Mtrol Analytics")
 
-# --- CONSTANTS ---
-TEMP_DELTA_FIXED = 89.85  # 69.675 - (-20.175)
+# --- CONSTANTS FROM IMAGES & REQUIREMENTS ---
+TEMP_DELTA_FIXED = 89.85  # Based on Range: -20.175 to 69.675
 
-def get_mtrol_standards(parameter_name):
+def get_mtrol_standards(device_name, parameter_name):
+    """Returns (min, max) based on the uploaded reference images."""
     clean_name = re.sub(r'[^a-zA-Z0-9]', '', str(parameter_name)).lower()
-    if "opening" in clean_name:
-        return 0.0, 100.0
-    elif "p1" in clean_name:
-        return 0.0, 17.0
-    elif "p2" in clean_name:
-        return 0.0, 17.0
+    
+    # Mtrol 4 Standards (from mt4.png)
+    if "4" in device_name:
+        if "flow" in clean_name: return 0.0, 500.0
+        if "opening" in clean_name: return 0.0, 100.0
+        if "p1" in clean_name: return 0.0, 17.0
+        if "p2" in clean_name: return 0.0, 17.0
+    # Mtrol 3 Standards (from mt3.png)
+    else:
+        if "flow" in clean_name: return 0.0, 200.0
+        if "opening" in clean_name: return 0.0, 100.0
+        if "p1" in clean_name: return 0.0, 17.0
+        if "p2" in clean_name: return 0.0, 17.0
+        
     return None, None
 
 # --- DATA CLEANING ---
@@ -50,68 +59,57 @@ uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["cs
 
 if uploaded_file is not None:
     df, time_col = load_and_clean_data(uploaded_file)
+    
+    # Auto-detect device type from filename
+    device_mode = "Mtrol 4" if "MT4" in uploaded_file.name.upper() or "MTROL4" in uploaded_file.name.upper() else "Mtrol 3"
+    st.sidebar.success(f"Detected: {device_mode}")
+
     temp_col = next((c for c in df.columns if "chamber" in c.lower() and "temp" in c.lower()), None)
     params = [c for c in df.columns if any(t.lower() in c.lower() for t in ["flow", "opening", "p1", "p2"])]
 
     if params and temp_col:
         plot_col = st.sidebar.selectbox("Select Parameter", params)
-        std_min, std_max = get_mtrol_standards(plot_col)
+        std_min, std_max = get_mtrol_standards(device_mode, plot_col)
 
         if std_min is not None and std_max is not None:
             # --- CALCULATIONS ---
             valid_df = df[[time_col, plot_col, temp_col]].dropna().copy()
+            # Cumulative Input Drift (numerator)
             in_range = valid_df[plot_col].expanding().max() - valid_df[plot_col].expanding().min()
+            # Reference Range (denominator)
             std_range = std_max - std_min
             
+            # Updated PPM Formula
             valid_df['PPM_Stability'] = (in_range * 1000000) / (TEMP_DELTA_FIXED * std_range)
             valid_df['PPM_Stability'] = valid_df['PPM_Stability'].replace([float('inf'), -float('inf')], 0).fillna(0)
 
-            # --- METRICS SECTION ---
-            st.subheader(f"📊 {plot_col} PPM Statistics")
+            # --- METRICS ---
+            st.subheader(f"📊 {plot_col} Stability Metrics ({device_mode})")
             m1, m2, m3, m4 = st.columns(4)
             
-            peak_ppm = valid_df['PPM_Stability'].max()
-            avg_ppm = valid_df['PPM_Stability'].mean()
-            min_ppm = valid_df[valid_df['PPM_Stability'] > 0]['PPM_Stability'].min() if not valid_df[valid_df['PPM_Stability'] > 0].empty else 0
-            final_ppm = valid_df['PPM_Stability'].iloc[-1]
-
-            m1.metric("Final PPM (Cycle End)", f"{final_ppm:.2f}")
-            m2.metric("Peak PPM (Worst Case)", f"{peak_ppm:.2f}")
-            m3.metric("Average PPM", f"{avg_ppm:.2f}")
-            m4.metric("Minimum PPM", f"{min_ppm:.2f}")
+            m1.metric("Final Cycle PPM", f"{valid_df['PPM_Stability'].iloc[-1]:.2f}")
+            m2.metric("Peak PPM", f"{valid_df['PPM_Stability'].max():.2f}")
+            m3.metric("Avg PPM", f"{valid_df['PPM_Stability'].mean():.2f}")
+            m4.metric("Ref Range", f"{std_max - std_min}")
 
             # --- PLOTTING ---
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df['PPM_Stability'], name="PPM", line=dict(color="#00CCFF", width=2)), secondary_y=False)
-            fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Temp (°C)", line=dict(color="#00FF99", width=1, dash='dot')), secondary_y=True)
+            fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Chamber Temp", line=dict(color="#FFD700", width=1, dash='dot')), secondary_y=True)
             
             fig.update_layout(template="plotly_dark", height=500, xaxis=dict(rangeslider=dict(visible=True, thickness=0.05)),
-                            yaxis=dict(title="PPM"), yaxis2=dict(title="Temp (°C)", side='right'))
+                            yaxis=dict(title="PPM Stability"), yaxis2=dict(title="Temp (°C)", side='right'))
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- DATA TABLE SECTION ---
-            st.divider()
-            st.subheader("📋 PPM Calculation Detail Table")
-            
-            # Format the table for the user
+            # --- DATA TABLE ---
+            st.subheader("📋 Calculation Detail Table")
             report_df = valid_df.copy()
             report_df['PPM_Stability'] = report_df['PPM_Stability'].map('{:,.2f}'.format)
-            report_df[plot_col] = report_df[plot_col].map('{:.4f}'.format)
-            report_df[temp_col] = report_df[temp_col].map('{:.2f}'.format)
-            
-            # Add progress percentage for easy tracking
-            total_rows = len(report_df)
-            report_df.insert(0, "Cycle Progress", [f"{(i/total_rows)*100:.1f}%" for i in range(1, total_rows + 1)])
-
             st.dataframe(report_df, use_container_width=True, hide_index=True)
             
-            # Download Option
-            csv = report_df.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Download PPM Analysis as CSV", data=csv, file_name=f"Mtrol_PPM_{plot_col}.csv", mime='text/csv')
-
         else:
-            st.warning(f"No standards defined for {plot_col}.")
+            st.warning(f"Standard range for {plot_col} not defined in your specs.")
     else:
-        st.error("Required columns (Temp/Params) not detected.")
+        st.error("Missing required columns in CSV.")
 else:
-    st.info("Please upload a dataset to generate the PPM report.")
+    st.info("Upload a CSV file to begin.")
