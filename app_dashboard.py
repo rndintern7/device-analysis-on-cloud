@@ -1,159 +1,131 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import base64
+from plotly.subplots import make_subplots
+import os
+import re
 
 # 1. Page Config
-st.set_page_config(page_title="Advanced Product Analytics", layout="wide")
+st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 
-# --- Function to load local logo ---
-def get_base64_image(image_path):
-    try:
-        with open(image_path, "rb") as img_file:
-            return base64.b64encode(img_file.read()).decode()
-    except: return ""
+# --- SIDEBAR LOGO ---
+if os.path.exists("logo.png"):
+    st.sidebar.image("logo.png", width=None) 
+else:
+    st.sidebar.title("Mtrol Analytics")
 
-logo_base64 = get_base64_image("logo.png")
-
-# --- HEADER ---
-col_title, col_logo = st.columns([8, 2])
-with col_title:
-    st.title("Device Analysis System")
-
-with col_logo:
-    if logo_base64:
-        st.markdown(f'<div style="text-align:right;"><img src="data:image/png;base64,{logo_base64}" style="width:180px;"></div>', unsafe_allow_html=True)
-
-# 2. SIDEBAR CONFIGURATION
-st.sidebar.header("📊 Control Panel")
-device = st.sidebar.selectbox("Select Product", ["Mtrol 3", "Mtrol 4", "MUPT"])
-
-# Define Parameters for each device
-params_map = {
-    "Mtrol 3": ["1: Flow Rate", "2: % Opening", "3: P1", "4: P2"],
-    "Mtrol 4": ["1: Flow Rate", "2: % Opening", "3: P1", "4: P2"],
-    "MUPT": ["C1 Measurement", "C2 Measurement", "T1 Measurement", "T2 Measurement", 
-             "Trap Mode", "Bypass Mode", "Solenoid Status", "Steam Leak", 
-             "Water Log/Process Off", "Cooling Cycle Switch"]
-}
-
-# --- COLOR PALETTE ---
-# Specific colors assigned per device and parameter
-color_palette = {
-    "Mtrol 3": {"1: Flow Rate": "#1f77b4", "2: % Opening": "#2ca02c", "3: P1": "#ff7f0e", "4: P2": "#9467bd"},
-    "Mtrol 4": {"1: Flow Rate": "#d62728", "2: % Opening": "#17becf", "3: P1": "#bcbd22", "4: P2": "#e377c2"},
-    "MUPT": {
-        "C1 Measurement": "#1f77b4", "C2 Measurement": "#ff7f0e", 
-        "T1 Measurement": "#2ca02c", "T2 Measurement": "#d62728",
-        "Trap Mode": "#9467bd", "Bypass Mode": "#8c564b", 
-        "Solenoid Status": "#e377c2", "Steam Leak": "#7f7f7f",
-        "Water Log/Process Off": "#bcbd22", "Cooling Cycle Switch": "#17becf"
+# --- SMART STANDARD LOOKUP ---
+def get_mtrol_standards(device_name, parameter_name):
+    """Matches uploaded column names to the reference standards CSV."""
+    file_map = {
+        "Mtrol 3": "Standard Values 11-13 March - For Mtrol 3 Input.csv",
+        "Mtrol 4": "Standard Values 11-13 March - For Mtrol 4 Input.csv"
     }
-}
+    filename = file_map.get(device_name)
+    
+    if filename and os.path.exists(filename):
+        try:
+            std_df = pd.read_csv(filename)
+            # Helper to strip units/spaces: 'P1 (bar)' -> 'p1'
+            def clean(text): return re.sub(r'[^a-zA-Z0-9]', '', str(text)).lower()
+            
+            search_key = clean(parameter_name)
+            for _, row in std_df.iterrows():
+                std_param = clean(row['Parameters'])
+                # Check if one is contained in the other
+                if std_param in search_key or search_key in std_param:
+                    return float(row['Minimum Value']), float(row['Maximum Value'])
+        except Exception:
+            pass
+    return None, None
 
-param_choice = st.sidebar.selectbox("Parameter to Visualize", params_map[device])
-
-# 3. DATA CONFIGURATION & LOADING
-config = {
-    "Mtrol 3": {"file": "Mtrol_3_11-13_March_2min_Average - Mtrol_3_11-13_March_2min_Average.csv.csv", "time": "Time Stamp", "temp": "Chamber Temperature (°C)"},
-    "Mtrol 4": {"file": "Mtrol_4_11-13_March_2min_Average - Mtrol_4_11-13_March_2min_Average.csv.csv", "time": "Time Stamp", "temp": "Chamber Temperature (°C)"},
-    "MUPT": {"file": "MUPT 1 - Sheet 1.csv", "time": "Timestamp"}
-}
-
+# --- DATA CLEANING ---
 @st.cache_data
-def load_data(dev):
-    df = pd.read_csv(config[dev]["file"])
-    df[config[dev]["time"]] = pd.to_datetime(df[config[dev]["time"]])
-    return df
+def load_and_clean_data(file):
+    df = pd.read_csv(file)
+    # Identify Time Column
+    time_col = next((c for c in df.columns if "time" in c.lower()), None)
+    if time_col:
+        df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+        df = df.sort_values(by=time_col).dropna(subset=[time_col])
+    
+    # Numeric cleanup (removes %, units, etc.)
+    targets = ["flow", "opening", "p1", "p2", "temp", "chamber"]
+    for col in df.columns:
+        if col != time_col and any(t in col.lower() for t in targets):
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce')
+    return df, time_col
 
-try:
-    df = load_data(device)
-    df_filtered = df.copy()
+# --- MAIN UI ---
+st.title("Mtrol Full-Cycle Stability Dashboard")
+st.caption("Automated PPM Stability Analysis | High-Precision Metrics")
 
-    # --- DYNAMIC FILTERS ---
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 Data Filters")
+st.sidebar.header("📂 Data Source")
+uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
 
-    if device == "MUPT":
-        # Ranges for C1, C2, T1, and T2 as requested
-        mupt_filter_cols = ["C1 Measurement", "C2 Measurement", "T1 Measurement", "T2 Measurement"]
-        for col in mupt_filter_cols:
-            min_v, max_v = float(df[col].min()), float(df[col].max())
-            r = st.sidebar.slider(f"Filter {col}", min_v, max_v, (min_v, max_v))
-            df_filtered = df_filtered[(df_filtered[col] >= r[0]) & (df_filtered[col] <= r[1])]
+# Health Check Sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("Reference Files Status")
+m3_path = "Standard Values 11-13 March - For Mtrol 3 Input.csv"
+m4_path = "Standard Values 11-13 March - For Mtrol 4 Input.csv"
+st.sidebar.write(f"{'✅' if os.path.exists(m3_path) else '❌'} Mtrol 3 Standards")
+st.sidebar.write(f"{'✅' if os.path.exists(m4_path) else '❌'} Mtrol 4 Standards")
+
+if uploaded_file is not None:
+    df, time_col = load_and_clean_data(uploaded_file)
+    
+    # Auto-detect device type from filename
+    device_name = "Mtrol 4" if "MT4" in uploaded_file.name.upper() else "Mtrol 3"
+    st.sidebar.success(f"Mode: {device_name}")
+
+    # Identify Temperature and Parameter columns
+    temp_col = next((c for c in df.columns if "chamber" in c.lower() and "temp" in c.lower()), None)
+    params = [c for c in df.columns if any(t.lower() in c.lower() for t in ["flow", "opening", "p1", "p2"])]
+
+    if params and temp_col:
+        plot_col = st.sidebar.selectbox("Select Parameter to Analyze", params)
+        std_min, std_max = get_mtrol_standards(device_name, plot_col)
+
+        if std_min is not None and std_max is not None:
+            valid_df = df[[time_col, plot_col, temp_col]].dropna().copy()
+            
+            # Cumulative Range (Expanding Window) to filter jitter
+            in_range = valid_df[plot_col].expanding().max() - valid_df[plot_col].expanding().min()
+            temp_range = valid_df[temp_col].expanding().max() - valid_df[temp_col].expanding().min()
+            std_total_range = std_max - std_min
+            
+            # PPM Stability Formula
+            # Formula: (Input_Delta * 1,000,000) / (Temp_Delta * Std_Range)
+            valid_df['PPM'] = (in_range * 1000000) / (temp_range * std_total_range)
+            valid_df['PPM'] = valid_df['PPM'].replace([float('inf'), -float('inf')], 0).fillna(0)
+
+            # --- PLOTTING ---
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # Primary: PPM Stability
+            fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df['PPM'], 
+                                     name="Stability (PPM)", line=dict(color="#00CCFF", width=2.5)), 
+                          secondary_y=False)
+            
+            # Secondary: Temp
+            fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], 
+                                     name="Chamber Temp (°C)", line=dict(color="#00FF99", width=1, dash='dot')), 
+                          secondary_y=True)
+
+            fig.update_layout(template="plotly_dark", height=600, 
+                            title=f"<b>Cycle Drift: {plot_col} vs Temp</b>",
+                            xaxis=dict(title="Cycle Duration", rangeslider=dict(visible=True, thickness=0.05)),
+                            yaxis=dict(title="Calculated PPM Stability"), 
+                            yaxis2=dict(title="Temperature (°C)", side='right'))
+            
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Final Summary Metrics
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Final Cycle PPM", f"{valid_df['PPM'].iloc[-1]:.2f}")
+            c2.metric("Temp Shift Δ", f"{valid_df[temp_col].max() - valid_df[temp_col].min():.2f}°C")
+            c3.info(f"Ref Range: {std_min} to {std_max}")
+        else:
+            st.warning(f"Reference range for {plot_col} not found in standards file.")
     else:
-        # Range for Mtrol Temperature
-        target_temp = st.sidebar.slider("Target Temperature (°C)", -20.0, 80.0, 70.0, 0.5)
-        tol = st.sidebar.slider("Tolerance (+/- °C)", 0.1, 5.0, 1.0)
-        t_col = config[device]["temp"]
-        df_filtered = df_filtered[(df_filtered[t_col] >= target_temp - tol) & (df_filtered[t_col] <= target_temp + tol)]
-
-    # --- COLUMN MAPPING ---
-    if "Mtrol" in device:
-        mapping = {'1: Flow Rate': 'Flow Rate', '2: % Opening': '% Opening', '3: P1': 'P1', '4: P2': 'P2'}
-        plot_col = mapping[param_choice]
-    else:
-        plot_col = param_choice
-
-    time_col = config[device]["time"]
-
-    if not df_filtered.empty:
-        # CALCULATIONS
-        mean_val = df_filtered[plot_col].mean()
-        df_filtered['PPM'] = ((df_filtered[plot_col] - mean_val) / mean_val * 1_000_000) if mean_val != 0 else 0
-
-        # --- 4. GRAPH WITH COLORS & LEGEND ---
-        selected_color = color_palette[device][param_choice]
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df_filtered[time_col], 
-            y=df_filtered['PPM'], 
-            mode='lines+markers', 
-            line=dict(color=selected_color, width=2),
-            name=f"{device}: {param_choice}" # This label shows in the legend
-        ))
-        
-        fig.update_layout(
-            title=f"<b>{device} Stability: {plot_col}</b>",
-            xaxis=dict(title="Time Stamp", rangeslider=dict(visible=True)), # X-Axis Label Restored
-            yaxis=dict(title="PPM Deviation"), # Y-Axis Label Restored
-            template="plotly_white",
-            height=550,
-            showlegend=True, # Force legend to show
-            legend=dict(
-                orientation="v",
-                yanchor="top",
-                y=1,
-                xanchor="left",
-                x=1.02, # Positioned slightly to the right of the graph
-                bgcolor="rgba(255,255,255,0.8)",
-                bordercolor="gray",
-                borderwidth=1
-            ),
-            margin=dict(r=150) # Extra room on the right for the legend
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # --- 5. STATISTICS (BETWEEN GRAPH & TABLE) ---
-        st.markdown("### 📊 Statistics Summary")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Mean Value", f"{mean_val:.4f}")
-        c2.metric("Peak PPM", f"{df_filtered['PPM'].max():.2f}")
-        c3.metric("Min PPM", f"{df_filtered['PPM'].min():.2f}")
-
-        st.markdown("---") 
-        
-        # --- 6. DATA TABLE ---
-        st.subheader("📋 Filtered Data Results")
-        display_cols = [time_col, plot_col, 'PPM']
-        # Add temp column if it's Mtrol
-        if "Mtrol" in device: display_cols.insert(1, config[device]["temp"])
-        
-        st.dataframe(df_filtered[display_cols], use_container_width=True, hide_index=True)
-
-    else:
-        st.warning("No data found for the selected filter ranges. Please adjust the sidebar sliders.")
-
-except Exception as e:
-    st.error(f"Error: {e}")
+        st.error("Dataset missing required 'Chamber Temp' or Mtrol parameters.")
