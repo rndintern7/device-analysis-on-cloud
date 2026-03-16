@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
@@ -19,12 +20,10 @@ TEMP_DELTA_FIXED = 89.85
 
 def get_mtrol_standards(device_name, parameter_name):
     clean_name = re.sub(r'[^a-zA-Z0-9]', '', str(parameter_name)).lower()
-    # Mtrol 4 Standards
     if "4" in device_name:
         if "flow" in clean_name: return 0.0, 500.0
         if "opening" in clean_name: return 0.0, 100.0
         if "p1" in clean_name or "p2" in clean_name: return 0.0, 17.0
-    # Mtrol 3 Standards
     else:
         if "flow" in clean_name: return 0.0, 200.0
         if "opening" in clean_name: return 0.0, 100.0
@@ -50,9 +49,6 @@ def load_and_clean_data(file):
 st.title("Mtrol Full-Cycle Stability Dashboard")
 
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
-st.sidebar.header("Analysis Settings")
-smooth_data = st.sidebar.toggle("Enable Signal Smoothing", value=True)
-window_size = st.sidebar.slider("Smoothing Window", 5, 100, 20) if smooth_data else 1
 
 if uploaded_file is not None:
     df, time_col = load_and_clean_data(uploaded_file)
@@ -70,12 +66,20 @@ if uploaded_file is not None:
         if ref_range:
             valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
             
-            # --- CALCULATIONS ---
+            # --- SPIKE FILTER LOGIC ---
+            # We calculate the difference between points. If a point jumps too high 
+            # compared to its neighbors, we treat it as a spike and use the previous value.
             raw_series = valid_df[selected_param]
-            clean_series = raw_series.rolling(window=window_size, center=True).mean() if smooth_data else raw_series
+            # Threshold: Ignore jumps larger than 5% of the total scale (adjust if needed)
+            threshold = ref_range * 0.05 
+            filtered_series = raw_series.copy()
+            diff = raw_series.diff().abs()
+            filtered_series[diff > threshold] = np.nan
+            filtered_series = filtered_series.ffill() # Fill the gap with the last good value
             
-            current_max = clean_series.expanding().max()
-            current_min = clean_series.expanding().min()
+            # --- CALCULATIONS ---
+            current_max = filtered_series.expanding().max()
+            current_min = filtered_series.expanding().min()
             drift_delta = current_max - current_min
             
             valid_df['PPM_Stability'] = (drift_delta * 1000000) / (TEMP_DELTA_FIXED * ref_range)
@@ -87,7 +91,7 @@ if uploaded_file is not None:
             fig.add_trace(go.Scattergl(
                 x=valid_df[time_col], y=valid_df['PPM_Stability'],
                 name=f"{selected_param} Stability (PPM)",
-                line=dict(color="#00CCFF", width=2.5)
+                line=dict(color="#00CCFF", width=2)
             ), secondary_y=False)
 
             fig.add_trace(go.Scattergl(
@@ -96,14 +100,12 @@ if uploaded_file is not None:
                 line=dict(color="#FFD700", width=1.5, dash='dot')
             ), secondary_y=True)
 
-            # --- UPDATED AXIS RANGE ---
             fig.update_layout(
-                title=f"<b>Full-Cycle Stability: {selected_param}</b>",
+                title=f"<b>Full-Cycle Stability: {selected_param} (Filtered)</b>",
                 template="plotly_dark", height=600,
                 xaxis=dict(title="Time", rangeslider=dict(visible=True, thickness=0.05)),
-                # Primary Y-axis (PPM) locked to 0-100
                 yaxis=dict(title="Calculated PPM (Stability)", range=[0, 100]), 
-                yaxis2=dict(title="Chamber Temp (°C)", side='right'),
+                yaxis2=dict(title="Chamber Temp (°C)", side='right', range=[0, 100]),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -112,11 +114,9 @@ if uploaded_file is not None:
             st.subheader(f"📊 {selected_param} Statistics")
             col1, col2, col3 = st.columns(3)
             col1.metric("Final PPM", f"{valid_df['PPM_Stability'].iloc[-1]:.2f}")
-            col2.metric("Max Drift", f"{drift_delta.max():.4f}")
-            col3.info(f"Y-Axis locked to 100 PPM for standardization.")
+            col2.metric("Max Drift (Filtered)", f"{drift_delta.max():.4f}")
+            col3.info(f"Y-Axes locked to 100.")
 
-            with st.expander(f"🔍 View Calculation Breakdown"):
-                st.latex(rf"PPM = \frac{{{drift_delta.max():.4f} \times 1,000,000}}{{89.85 \times {ref_range}}}")
         else:
             st.warning("Reference range missing.")
     else:
