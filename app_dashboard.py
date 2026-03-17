@@ -8,36 +8,25 @@ import re
 # 1. Page Config
 st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 
-# --- CUSTOM CSS FOR FONT SIZES & LOGO ALIGNMENT ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Metric Label (Heading) Styling */
     [data-testid="stMetricLabel"] p {
         font-size: 18px !important;
         font-weight: bold !important;
         color: #FFFFFF !important;
-        line-height: 1.2 !important;
     }
-    /* Metric Value (Number) Styling */
     [data-testid="stMetricValue"] div {
         font-size: 16px !important;
         color: #00CCFF !important;
-        white-space: nowrap !important;
-    }
-    /* Container adjustment */
-    [data-testid="stMetric"] {
-        width: fit-content !important;
-        padding-right: 10px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # --- TOP HEADER SECTION ---
 header_col1, header_col2 = st.columns([4, 1])
-
 with header_col1:
     st.title("Mtrol Full-Cycle Analysis")
-
 with header_col2:
     if os.path.exists("logo.png"):
         st.image("logo.png", use_container_width=True)
@@ -59,7 +48,6 @@ MT4_VALS = {
     "p2": {"max": 10.74, "min": 10.59, "ppm": 310.21, "unit": "bar"}
 }
 
-# --- DATA LOADING ---
 @st.cache_data
 def load_and_clean_data(file):
     df = pd.read_csv(file)
@@ -74,13 +62,11 @@ def load_and_clean_data(file):
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce')
     return df, time_col
 
-# --- MAIN LOGIC ---
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
 
 if uploaded_file is not None:
     df, time_col = load_and_clean_data(uploaded_file)
     device_mode = "Mtrol 4" if "MT4" in uploaded_file.name.upper() else "Mtrol 3"
-    
     data_lookup = MT4_VALS if device_mode == "Mtrol 4" else MT3_VALS
     temp_col = next((c for c in df.columns if "chamber" in c.lower() and "temp" in c.lower()), None)
     available_params = [c for c in df.columns if any(t in c.lower() for t in ["flow", "opening", "p1", "p2"])]
@@ -90,53 +76,43 @@ if uploaded_file is not None:
         clean_key = next((k for k in ["flow", "opening", "p1", "p2"] if k in selected_param.lower()), "p1")
         unit = data_lookup[clean_key]["unit"]
 
-        # --- DYNAMIC PPM LOGIC ---
-        ppm_header = f"{selected_param} PPM"
-        raw_ppm = data_lookup[clean_key]["ppm"]
-        ppm_display = f"{float(raw_ppm):.2f}" if raw_ppm is not None else "—"
-
-        # --- METRICS SECTION ---
+        # --- METRICS ---
         st.write("---")
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric(f"Max {selected_param}", f"{float(data_lookup[clean_key]['max']):.2f} {unit}")
         m2.metric(f"Min {selected_param}", f"{float(data_lookup[clean_key]['min']):.2f} {unit}")
         m3.metric("Max Temperature", f"{df[temp_col].max():.2f}°C")
         m4.metric("Min Temperature", f"{df[temp_col].min():.2f}°C")
-        m5.metric(ppm_header, ppm_display)
+        
+        ppm_val = data_lookup[clean_key]["ppm"]
+        m5.metric(f"{selected_param} PPM", f"{float(ppm_val):.2f}" if ppm_val is not None else "—")
         st.write("---")
 
-        # --- PLOT ---
+        # --- GRAPH ---
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
-        start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
-        
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name=f"{selected_param}", line=dict(color="#00CCFF", width=1.5)), secondary_y=False)
-        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Chamber Temp", line=dict(color="#FFD700", width=1.5, dash='dot')), secondary_y=True)
-
-        fig.update_layout(
-            template="plotly_dark", height=600,
-            xaxis=dict(title="Time (March 13)", type='date', range=[start_time, end_time], rangeslider=dict(visible=True)),
-            yaxis=dict(title=f"{selected_param} ({unit})"),
-            yaxis2=dict(title="Temp (°C)", side='right', range=[-20, 70], dtick=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name=f"{selected_param}", line=dict(color="#00CCFF")), secondary_y=False)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Chamber Temp", line=dict(color="#FFD700", dash='dot')), secondary_y=True)
+        fig.update_layout(template="plotly_dark", height=500, yaxis2=dict(range=[-20, 70]))
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- DATA TABLE SECTION ---
-        st.subheader(f"📋 Reference Summary: {device_mode}")
+        # --- RAW DATA TABLE SECTION ---
+        st.subheader("📁 Raw Dataset Explorer")
         
-        summary_data = {
-            "Parameter Name": [f"Max {selected_param}", f"Min {selected_param}", "Max Temperature", "Min Temperature", ppm_header],
-            "Value": [
-                f"{float(data_lookup[clean_key]['max']):.2f}", 
-                f"{float(data_lookup[clean_key]['min']):.2f}", 
-                f"{df[temp_col].max():.2f}", 
-                f"{df[temp_col].min():.2f}", 
-                ppm_display
-            ],
-            "Unit": [unit, unit, "°C", "°C", "PPM"]
-        }
-        st.table(pd.DataFrame(summary_data))
-
+        # Adding a filter to show head or full data to prevent lag with huge files
+        view_mode = st.radio("Display Mode", ["First 100 Rows", "Full Dataset"], horizontal=True)
+        
+        if view_mode == "First 100 Rows":
+            st.dataframe(df.head(100), use_container_width=True)
+        else:
+            st.dataframe(df, use_container_width=True)
+            
+        # Add a download button for the current data
+        st.download_button(
+            label="Download Current CSV",
+            data=df.to_csv(index=False),
+            file_name=f"processed_{uploaded_file.name}",
+            mime="text/csv"
+        )
 else:
     st.info("Upload CSV to begin.")
