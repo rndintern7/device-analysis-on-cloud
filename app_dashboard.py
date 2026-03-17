@@ -11,9 +11,9 @@ st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 # --- CUSTOM CSS FOR FONT SIZES & LOGO ALIGNMENT ---
 st.markdown("""
     <style>
-    /* Metric Label (Heading) Styling - Increased to 21px */
+    /* Metric Label (Heading) Styling - Increased to 18px */
     [data-testid="stMetricLabel"] p {
-        font-size: 21px !important;
+        font-size: 18px !important;
         font-weight: bold !important;
         color: #FFFFFF !important;
         line-height: 1.2 !important;
