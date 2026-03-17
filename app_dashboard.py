@@ -114,24 +114,25 @@ if uploaded_file is not None:
 
         fig.update_layout(
             template="plotly_dark", height=600,
-            hovermode="x unified",  # Groups tooltip data
+            dragmode="zoom", # Allows clicking and dragging to zoom
+            hovermode="x unified",
             xaxis=dict(
                 title="Time Progress", 
                 type='date', 
                 range=[start_time, end_time], 
                 rangeslider=dict(visible=True),
-                showspikes=True, # VERTICAL CURSOR LINE
-                spikemode="across",
+                showspikes=True, 
+                spikemode="across+toaxis", # Crosshair effect
                 spikesnap="cursor",
-                spikethickness=1,
-                spikedash="solid",
-                spikecolor="#EEEEEE"
+                showline=True,
+                showgrid=True
             ),
             yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=left_range, dtick=left_dtick),
             yaxis2=dict(title="<b>Chamber Temperature (°C)</b>", color="#FFD700", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        st.plotly_chart(fig, use_container_width=True)
+        # CONFIG for Zooming tools
+        st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
 
         # --- RAW DATA TABLE ---
         st.subheader("📁 Raw Dataset Explorer")
