@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
-import re
 
 # 1. Page Config
 st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
@@ -89,10 +88,16 @@ if uploaded_file is not None:
         st.write("---")
 
         # --- DYNAMIC Y-AXIS RANGE LOGIC ---
-        if "flow" in selected_param.lower():
-            left_range = [0, 320]  # Increased to 320 to accommodate 303 peak
-            left_dtick = 40        # Consistent grid lines every 40 units
+        param_lower = selected_param.lower()
+        if "flow" in param_lower:
+            left_range = [0, 320]
+            left_dtick = 40
+        elif "p1" in param_lower or "p2" in param_lower:
+            # P1 and P2 strictly 0 to 20 bar
+            left_range = [0, 20]
+            left_dtick = 2
         else:
+            # % Opening and others remain -20 to 70
             left_range = [-20, 70]
             left_dtick = 10
 
@@ -115,9 +120,7 @@ if uploaded_file is not None:
         fig.update_layout(
             template="plotly_dark", height=600,
             xaxis=dict(title="Time Progress", type='date', range=[start_time, end_time], rangeslider=dict(visible=True)),
-            # Applied Updated Flow Range
             yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=left_range, dtick=left_dtick),
-            # Fixed Temp Range
             yaxis2=dict(title="<b>Chamber Temperature (°C)</b>", color="#FFD700", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
