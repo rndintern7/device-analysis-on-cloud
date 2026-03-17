@@ -8,28 +8,63 @@ import re
 # 1. Page Config
 st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 
-# --- DATA CONSTANTS (Your Exact Provided Values) ---
+# --- CUSTOM CSS FOR FONT SIZES & LOGO ALIGNMENT ---
+st.markdown("""
+    <style>
+    /* Metric Label (Heading) Styling - Increased to 28px */
+    [data-testid="stMetricLabel"] p {
+        font-size: 28px !important;
+        font-weight: bold !important;
+        color: #FFFFFF !important;
+        line-height: 1.2 !important;
+    }
+    /* Metric Value (Number) Styling - Decreased to 16px to prevent "..." */
+    [data-testid="stMetricValue"] div {
+        font-size: 16px !important;
+        color: #00CCFF !important;
+        white-space: nowrap !important;
+    }
+    /* Remove default padding to allow more space for numbers */
+    [data-testid="stMetric"] {
+        width: fit-content !important;
+        padding-right: 10px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- TOP HEADER SECTION ---
+header_col1, header_col2 = st.columns([4, 1])
+
+with header_col1:
+    st.title("Mtrol Full-Cycle Raw Parameter Analysis")
+
+with header_col2:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", use_container_width=True)
+    else:
+        st.write("*(Logo)*")
+
+# --- DATA CONSTANTS ---
 MT3_VALS = {
-    "flow": {"max": "303.5447", "min": "0.0", "ppm": "2449.9944", "unit": "Kg/Hr"},
-    "opening": {"max": "22.0132", "min": "0.0", "ppm": "2449.9944", "unit": "%"},
-    "p1": {"max": "10.6029", "min": "0.0", "ppm": "21455.7595", "unit": "bar"},
-    "p2": {"max": "10.0592", "min": "0.0", "ppm": "20355.5420", "unit": "bar"}
+    "flow": {"max": 303.54, "min": 0.00, "ppm": 2449.99, "unit": "Kg/Hr"},
+    "opening": {"max": 22.01, "min": 0.00, "ppm": 2449.99, "unit": "%"},
+    "p1": {"max": 10.60, "min": 0.00, "ppm": 21455.76, "unit": "bar"},
+    "p2": {"max": 10.06, "min": 0.00, "ppm": 20355.54, "unit": "bar"}
 }
 
 MT4_VALS = {
-    "flow": {"max": "275.1067", "min": "0.0", "ppm": "2170.4062", "unit": "Kg/Hr"},
-    "opening": {"max": "19.5011", "min": "0.0", "ppm": "2170.4062", "unit": "%"},
-    "p1": {"max": "5.3704", "min": "5.3062", "ppm": "129.9134", "unit": "bar"},
-    "p2": {"max": "10.7396", "min": "10.5863", "ppm": "310.2139", "unit": "bar"}
+    "flow": {"max": 275.11, "min": 0.00, "ppm": 2170.41, "unit": "Kg/Hr"},
+    "opening": {"max": 19.50, "min": 0.00, "ppm": 2170.41, "unit": "%"},
+    "p1": {"max": 5.37, "min": 5.31, "ppm": 129.91, "unit": "bar"},
+    "p2": {"max": 10.74, "min": 10.59, "ppm": 310.21, "unit": "bar"}
 }
 
-# --- DATA CLEANING ---
+# --- DATA LOADING ---
 @st.cache_data
 def load_and_clean_data(file):
     df = pd.read_csv(file)
     time_col = next((c for c in df.columns if "time" in c.lower()), None)
     if time_col:
-        # Converting to datetime and ensuring the full range is preserved
         df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
         df = df.sort_values(by=time_col).dropna(subset=[time_col])
     
@@ -39,75 +74,46 @@ def load_and_clean_data(file):
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'[^\d\.\-]', '', regex=True), errors='coerce')
     return df, time_col
 
-# --- MAIN UI ---
-st.title("Mtrol Full-Cycle Raw Parameter Analysis")
-
+# --- MAIN LOGIC ---
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
 
 if uploaded_file is not None:
     df, time_col = load_and_clean_data(uploaded_file)
     device_mode = "Mtrol 4" if "MT4" in uploaded_file.name.upper() else "Mtrol 3"
-    st.sidebar.success(f"Mode: {device_mode}")
     
     data_lookup = MT4_VALS if device_mode == "Mtrol 4" else MT3_VALS
     temp_col = next((c for c in df.columns if "chamber" in c.lower() and "temp" in c.lower()), None)
     available_params = [c for c in df.columns if any(t in c.lower() for t in ["flow", "opening", "p1", "p2"])]
 
     if available_params and temp_col:
-        selected_param = st.sidebar.selectbox("🎯 Select Parameter to Plot", available_params)
+        selected_param = st.sidebar.selectbox("🎯 Select Parameter", available_params)
         clean_key = next((k for k in ["flow", "opening", "p1", "p2"] if k in selected_param.lower()), "p1")
         unit = data_lookup[clean_key]["unit"]
 
-        # --- TOP METRICS ---
-        st.subheader(f"📊 {device_mode} Global Specs for {selected_param}")
+        # --- METRICS SECTION ---
+        st.write("---")
         m1, m2, m3, m4, m5 = st.columns(5)
         
-        m1.metric(f"Max {selected_param}", f"{data_lookup[clean_key]['max']} {unit}")
-        m2.metric(f"Min {selected_param}", f"{data_lookup[clean_key]['min']} {unit}")
+        m1.metric(f"Max {selected_param}", f"{float(data_lookup[clean_key]['max']):.2f} {unit}")
+        m2.metric(f"Min {selected_param}", f"{float(data_lookup[clean_key]['min']):.2f} {unit}")
         m3.metric("Max Chamber Temp", f"{df[temp_col].max():.2f}°C")
         m4.metric("Min Chamber Temp", f"{df[temp_col].min():.2f}°C")
-        m5.metric("Specified PPM", str(data_lookup[clean_key]['ppm']))
+        m5.metric("Specified PPM", f"{float(data_lookup[clean_key]['ppm']):.2f}")
+        st.write("---")
 
-        # --- COMPLETE DATA PLOT ---
-        # Ensure we use the full dataframe for the plot
+        # --- PLOT ---
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
+        start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        
-        # Primary Plot: Raw Parameter (Kg/Hr, bar, or %)
-        fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], y=valid_df[selected_param],
-            name=f"Raw {selected_param} ({unit})",
-            line=dict(color="#00CCFF", width=1.5)
-        ), secondary_y=False)
-
-        # Secondary Plot: Chamber Temp
-        fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], y=valid_df[temp_col],
-            name="Chamber Temp (°C)",
-            line=dict(color="#FFD700", width=1.5, dash='dot')
-        ), secondary_y=True)
-
-        # Force the X-axis to show the full range explicitly
-        start_time = valid_df[time_col].min()
-        end_time = valid_df[time_col].max()
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name="Raw Data"), secondary_y=False)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Temp", line=dict(dash='dot')), secondary_y=True)
 
         fig.update_layout(
-            title=f"<b>Synchronized Data: {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}</b>",
             template="plotly_dark", height=600,
-            xaxis=dict(
-                title="Time (March 13)", 
-                type='date',
-                range=[start_time, end_time], # Forces full timeline
-                rangeslider=dict(visible=True)
-            ),
-            yaxis=dict(title=f"{selected_param} ({unit})", autorange=True), 
-            yaxis2=dict(title="Temp (°C)", side='right', range=[-20, 70], dtick=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            xaxis=dict(type='date', range=[start_time, end_time]),
+            yaxis2=dict(range=[-20, 70], dtick=10)
         )
         st.plotly_chart(fig, use_container_width=True)
-
-    else:
-        st.error("Required columns missing.")
 else:
-    st.info("Please upload a Mtrol CSV file.")
+    st.info("Upload CSV to begin.")
