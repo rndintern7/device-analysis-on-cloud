@@ -7,31 +7,6 @@ import os
 # 1. Page Config
 st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 
-# --- CUSTOM CSS ---
-st.markdown("""
-    <style>
-    [data-testid="stMetricLabel"] p {
-        font-size: 18px !important;
-        font-weight: bold !important;
-        color: #FFFFFF !important;
-    }
-    [data-testid="stMetricValue"] div {
-        font-size: 16px !important;
-        color: #00CCFF !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- TOP HEADER SECTION ---
-header_col1, header_col2 = st.columns([4, 1])
-with header_col1:
-    st.title("Mtrol Full-Cycle Analysis")
-with header_col2:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", use_container_width=True)
-    else:
-        st.write("*(Logo)*")
-
 # --- DATA CONSTANTS ---
 MT3_VALS = {
     "flow": {"max": 303.54, "min": 0.00, "ppm": None, "unit": "Kg/Hr"},
@@ -75,19 +50,7 @@ if uploaded_file is not None:
         clean_key = next((k for k in ["flow", "opening", "p1", "p2"] if k in selected_param.lower()), "p1")
         unit = data_lookup[clean_key]["unit"]
 
-        # --- METRICS ---
-        st.write("---")
-        m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric(f"Max {selected_param}", f"{float(data_lookup[clean_key]['max']):.2f} {unit}")
-        m2.metric(f"Min {selected_param}", f"{float(data_lookup[clean_key]['min']):.2f} {unit}")
-        m3.metric("Max Temperature", f"{df[temp_col].max():.2f}°C")
-        m4.metric("Min Temperature", f"{df[temp_col].min():.2f}°C")
-        
-        ppm_val = data_lookup[clean_key]["ppm"]
-        m5.metric(f"{selected_param} PPM", f"{float(ppm_val):.2f}" if ppm_val is not None else "—")
-        st.write("---")
-
-        # --- DYNAMIC Y-AXIS RANGE LOGIC ---
+        # --- DYNAMIC Y-AXIS RANGE ---
         param_lower = selected_param.lower()
         if "flow" in param_lower:
             left_range, left_dtick = [0, 320], 40
@@ -98,45 +61,41 @@ if uploaded_file is not None:
 
         # --- GRAPH ---
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
-        start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        
-        fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], y=valid_df[selected_param], 
-            name=f"{selected_param}", line=dict(color="#00CCFF", width=1.5)
-        ), secondary_y=False)
-
-        fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], y=valid_df[temp_col], 
-            name="Chamber Temp", line=dict(color="#FFD700", width=1.5, dash='dot')
-        ), secondary_y=True)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name=f"{selected_param}", line=dict(color="#00CCFF")), secondary_y=False)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Chamber Temp", line=dict(color="#FFD700", dash='dot')), secondary_y=True)
 
         fig.update_layout(
             template="plotly_dark", height=600,
-            dragmode="zoom", # Allows clicking and dragging to zoom
             hovermode="x unified",
-            xaxis=dict(
-                title="Time Progress", 
-                type='date', 
-                range=[start_time, end_time], 
-                rangeslider=dict(visible=True),
-                showspikes=True, 
-                spikemode="across+toaxis", # Crosshair effect
-                spikesnap="cursor",
-                showline=True,
-                showgrid=True
+            dragmode="zoom", # Enables the "Box Zoom" cursor
+            xaxis=dict(title="Time Progress", rangeslider=dict(visible=True)),
+            # CRITICAL: fixedrange=False allows vertical zooming
+            yaxis=dict(
+                title=f"<b>{selected_param} ({unit})</b>", 
+                color="#00CCFF", 
+                range=left_range, 
+                dtick=left_dtick,
+                fixedrange=False 
             ),
-            yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=left_range, dtick=left_dtick),
-            yaxis2=dict(title="<b>Chamber Temperature (°C)</b>", color="#FFD700", side='right', range=[-20, 70], dtick=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            yaxis2=dict(
+                title="<b>Chamber Temperature (°C)</b>", 
+                color="#FFD700", 
+                range=[-20, 70], 
+                fixedrange=False 
+            ),
         )
-        # CONFIG for Zooming tools
-        st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': True})
 
-        # --- RAW DATA TABLE ---
+        # Enabling the Zoom tool specifically in the toolbar
+        st.plotly_chart(fig, use_container_width=True, config={
+            'scrollZoom': True,           # Zoom with mouse wheel
+            'displayModeBar': True,       # Shows the zoom/pan/reset toolbar
+            'modeBarButtonsToRemove': [], # Keep all tools
+            'displaylogo': False
+        })
+
         st.subheader("📁 Raw Dataset Explorer")
         st.dataframe(df, use_container_width=True)
-            
 else:
     st.info("Upload CSV to begin.")
