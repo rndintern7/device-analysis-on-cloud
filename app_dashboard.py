@@ -29,6 +29,7 @@ def load_and_clean_data(file):
     df = pd.read_csv(file)
     time_col = next((c for c in df.columns if "time" in c.lower()), None)
     if time_col:
+        # Converting to datetime and ensuring the full range is preserved
         df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
         df = df.sort_values(by=time_col).dropna(subset=[time_col])
     
@@ -39,7 +40,7 @@ def load_and_clean_data(file):
     return df, time_col
 
 # --- MAIN UI ---
-st.title("Mtrol Full-Cycle Parameter Analysis")
+st.title("Mtrol Full-Cycle Raw Parameter Analysis")
 
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
 
@@ -57,28 +58,27 @@ if uploaded_file is not None:
         clean_key = next((k for k in ["flow", "opening", "p1", "p2"] if k in selected_param.lower()), "p1")
         unit = data_lookup[clean_key]["unit"]
 
-        # --- TOP METRICS (FORCE FULL VALUE STRINGS) ---
+        # --- TOP METRICS ---
         st.subheader(f"📊 {device_mode} Global Specs for {selected_param}")
         m1, m2, m3, m4, m5 = st.columns(5)
         
-        # We display these as strings to prevent Streamlit from shortening them with "..."
         m1.metric(f"Max {selected_param}", f"{data_lookup[clean_key]['max']} {unit}")
         m2.metric(f"Min {selected_param}", f"{data_lookup[clean_key]['min']} {unit}")
         m3.metric("Max Chamber Temp", f"{df[temp_col].max():.2f}°C")
         m4.metric("Min Chamber Temp", f"{df[temp_col].min():.2f}°C")
-        # Displaying the full PPM value without truncation
         m5.metric("Specified PPM", str(data_lookup[clean_key]['ppm']))
 
-        # --- SYNCHRONIZED RAW DATA PLOT ---
+        # --- COMPLETE DATA PLOT ---
+        # Ensure we use the full dataframe for the plot
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Primary Plot: Raw Parameter
+        # Primary Plot: Raw Parameter (Kg/Hr, bar, or %)
         fig.add_trace(go.Scattergl(
             x=valid_df[time_col], y=valid_df[selected_param],
             name=f"Raw {selected_param} ({unit})",
-            line=dict(color="#00CCFF", width=2)
+            line=dict(color="#00CCFF", width=1.5)
         ), secondary_y=False)
 
         # Secondary Plot: Chamber Temp
@@ -88,12 +88,20 @@ if uploaded_file is not None:
             line=dict(color="#FFD700", width=1.5, dash='dot')
         ), secondary_y=True)
 
+        # Force the X-axis to show the full range explicitly
+        start_time = valid_df[time_col].min()
+        end_time = valid_df[time_col].max()
+
         fig.update_layout(
-            title=f"<b>Synchronized Raw Data: {selected_param} vs Temperature</b>",
+            title=f"<b>Synchronized Data: {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}</b>",
             template="plotly_dark", height=600,
-            xaxis=dict(title="Time Progress", rangeslider=dict(visible=True)),
+            xaxis=dict(
+                title="Time (March 13)", 
+                type='date',
+                range=[start_time, end_time], # Forces full timeline
+                rangeslider=dict(visible=True)
+            ),
             yaxis=dict(title=f"{selected_param} ({unit})", autorange=True), 
-            # TEMP RANGE: -20 to 70
             yaxis2=dict(title="Temp (°C)", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
