@@ -88,19 +88,25 @@ if uploaded_file is not None:
         m5.metric(f"{selected_param} PPM", f"{float(ppm_val):.2f}" if ppm_val is not None else "—")
         st.write("---")
 
+        # --- DYNAMIC Y-AXIS RANGE LOGIC ---
+        if "flow" in selected_param.lower():
+            left_range = [0, 320]  # Increased to 320 to accommodate 303 peak
+            left_dtick = 40        # Consistent grid lines every 40 units
+        else:
+            left_range = [-20, 70]
+            left_dtick = 10
+
         # --- GRAPH ---
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
         start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Parameter Line
         fig.add_trace(go.Scattergl(
             x=valid_df[time_col], y=valid_df[selected_param], 
             name=f"{selected_param}", line=dict(color="#00CCFF", width=1.5)
         ), secondary_y=False)
 
-        # Temperature Line
         fig.add_trace(go.Scattergl(
             x=valid_df[time_col], y=valid_df[temp_col], 
             name="Chamber Temp", line=dict(color="#FFD700", width=1.5, dash='dot')
@@ -109,16 +115,16 @@ if uploaded_file is not None:
         fig.update_layout(
             template="plotly_dark", height=600,
             xaxis=dict(title="Time Progress", type='date', range=[start_time, end_time], rangeslider=dict(visible=True)),
-            # UPDATED LEFT Y-AXIS RANGE: -20 to 70
-            yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=[-20, 70], dtick=10),
-            # RIGHT Y-AXIS RANGE: -20 to 70
+            # Applied Updated Flow Range
+            yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=left_range, dtick=left_dtick),
+            # Fixed Temp Range
             yaxis2=dict(title="<b>Chamber Temperature (°C)</b>", color="#FFD700", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig, use_container_width=True)
 
         # --- RAW DATA TABLE ---
-        st.subheader("📁 Original Data ")
+        st.subheader("📁 Raw Dataset Explorer")
         st.dataframe(df, use_container_width=True)
             
 else:
