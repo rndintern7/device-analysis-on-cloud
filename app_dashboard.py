@@ -100,8 +100,8 @@ if uploaded_file is not None:
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric(f"Max {selected_param}", f"{float(data_lookup[clean_key]['max']):.2f} {unit}")
         m2.metric(f"Min {selected_param}", f"{float(data_lookup[clean_key]['min']):.2f} {unit}")
-        m3.metric("Max Chamber Temp", f"{df[temp_col].max():.2f}°C")
-        m4.metric("Min Chamber Temp", f"{df[temp_col].min():.2f}°C")
+        m3.metric("Max Temperature", f"{df[temp_col].max():.2f}°C")
+        m4.metric("Min Temperature", f"{df[temp_col].min():.2f}°C")
         m5.metric(ppm_header, ppm_display)
         st.write("---")
 
@@ -110,21 +110,8 @@ if uploaded_file is not None:
         start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        
-        # Legend now shows the specific parameter name selected
-        fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], 
-            y=valid_df[selected_param], 
-            name=f"{selected_param}", 
-            line=dict(color="#00CCFF", width=1.5)
-        ), secondary_y=False)
-
-        fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], 
-            y=valid_df[temp_col], 
-            name="Chamber Temp", 
-            line=dict(color="#FFD700", width=1.5, dash='dot')
-        ), secondary_y=True)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name=f"{selected_param}", line=dict(color="#00CCFF", width=1.5)), secondary_y=False)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Chamber Temp", line=dict(color="#FFD700", width=1.5, dash='dot')), secondary_y=True)
 
         fig.update_layout(
             template="plotly_dark", height=600,
@@ -134,5 +121,22 @@ if uploaded_file is not None:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # --- DATA TABLE SECTION ---
+        st.subheader(f"📋 Reference Summary: {device_mode}")
+        
+        summary_data = {
+            "Parameter Name": [f"Max {selected_param}", f"Min {selected_param}", "Max Temperature", "Min Temperature", ppm_header],
+            "Value": [
+                f"{float(data_lookup[clean_key]['max']):.2f}", 
+                f"{float(data_lookup[clean_key]['min']):.2f}", 
+                f"{df[temp_col].max():.2f}", 
+                f"{df[temp_col].min():.2f}", 
+                ppm_display
+            ],
+            "Unit": [unit, unit, "°C", "°C", "PPM"]
+        }
+        st.table(pd.DataFrame(summary_data))
+
 else:
     st.info("Upload CSV to begin.")
