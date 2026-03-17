@@ -94,7 +94,7 @@ if uploaded_file is not None:
             left_dtick = 40
         elif "p1" in param_lower or "p2" in param_lower:
             # P1 and P2 strictly 0 to 20 bar
-            left_range = [4, 11]
+            left_range = [4, 6]
             left_dtick = 2
         else:
             # % Opening and others remain -20 to 70
