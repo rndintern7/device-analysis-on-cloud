@@ -94,35 +94,30 @@ if uploaded_file is not None:
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Left Side Parameter
+        # Parameter Line
         fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], 
-            y=valid_df[selected_param], 
-            name=f"{selected_param}", 
-            line=dict(color="#00CCFF", width=1.5)
+            x=valid_df[time_col], y=valid_df[selected_param], 
+            name=f"{selected_param}", line=dict(color="#00CCFF", width=1.5)
         ), secondary_y=False)
 
-        # Right Side Temperature
+        # Temperature Line
         fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], 
-            y=valid_df[temp_col], 
-            name="Chamber Temp", 
-            line=dict(color="#FFD700", width=1.5, dash='dot')
+            x=valid_df[time_col], y=valid_df[temp_col], 
+            name="Chamber Temp", line=dict(color="#FFD700", width=1.5, dash='dot')
         ), secondary_y=True)
 
         fig.update_layout(
-            template="plotly_dark", 
-            height=600,
+            template="plotly_dark", height=600,
             xaxis=dict(title="Time Progress", type='date', range=[start_time, end_time], rangeslider=dict(visible=True)),
-            # LEFT AXIS TITLE
-            yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF"), 
-            # RIGHT AXIS TITLE
+            # UPDATED LEFT Y-AXIS RANGE: -20 to 70
+            yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=[-20, 70], dtick=10),
+            # RIGHT Y-AXIS RANGE: -20 to 70
             yaxis2=dict(title="<b>Chamber Temperature (°C)</b>", color="#FFD700", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- RAW DATA TABLE SECTION ---
+        # --- RAW DATA TABLE ---
         st.subheader("📁 Raw Dataset Explorer")
         st.dataframe(df, use_container_width=True)
             
