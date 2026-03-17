@@ -90,16 +90,11 @@ if uploaded_file is not None:
         # --- DYNAMIC Y-AXIS RANGE LOGIC ---
         param_lower = selected_param.lower()
         if "flow" in param_lower:
-            left_range = [0, 320]
-            left_dtick = 40
+            left_range, left_dtick = [0, 320], 40
         elif "p1" in param_lower or "p2" in param_lower:
-            # P1 and P2 strictly 0 to 20 bar
-            left_range = [4, 6]
-            left_dtick = 2
+            left_range, left_dtick = [0, 20], 2
         else:
-            # % Opening and others remain -20 to 70
-            left_range = [-20, 70]
-            left_dtick = 10
+            left_range, left_dtick = [-20, 70], 10
 
         # --- GRAPH ---
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
@@ -119,7 +114,19 @@ if uploaded_file is not None:
 
         fig.update_layout(
             template="plotly_dark", height=600,
-            xaxis=dict(title="Time Progress", type='date', range=[start_time, end_time], rangeslider=dict(visible=True)),
+            hovermode="x unified",  # Groups tooltip data
+            xaxis=dict(
+                title="Time Progress", 
+                type='date', 
+                range=[start_time, end_time], 
+                rangeslider=dict(visible=True),
+                showspikes=True, # VERTICAL CURSOR LINE
+                spikemode="across",
+                spikesnap="cursor",
+                spikethickness=1,
+                spikedash="solid",
+                spikecolor="#EEEEEE"
+            ),
             yaxis=dict(title=f"<b>{selected_param} ({unit})</b>", color="#00CCFF", range=left_range, dtick=left_dtick),
             yaxis2=dict(title="<b>Chamber Temperature (°C)</b>", color="#FFD700", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
