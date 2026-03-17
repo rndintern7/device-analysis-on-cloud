@@ -10,17 +10,17 @@ st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 
 # --- DATA CONSTANTS (Your Exact Provided Values) ---
 MT3_VALS = {
-    "flow": {"max": 303.5447, "min": 0.0, "ppm": 2449.9944, "unit": "Kg/Hr"},
-    "opening": {"max": 22.0132, "min": 0.0, "ppm": 2449.9944, "unit": "%"},
-    "p1": {"max": 10.6029, "min": 0.0, "ppm": 21455.7595, "unit": "bar"},
-    "p2": {"max": 10.0592, "min": 0.0, "ppm": 20355.5420, "unit": "bar"}
+    "flow": {"max": "303.5447", "min": "0.0", "ppm": "2449.9944", "unit": "Kg/Hr"},
+    "opening": {"max": "22.0132", "min": "0.0", "ppm": "2449.9944", "unit": "%"},
+    "p1": {"max": "10.6029", "min": "0.0", "ppm": "21455.7595", "unit": "bar"},
+    "p2": {"max": "10.0592", "min": "0.0", "ppm": "20355.5420", "unit": "bar"}
 }
 
 MT4_VALS = {
-    "flow": {"max": 275.1067, "min": 0.0, "ppm": 2170.4062, "unit": "Kg/Hr"},
-    "opening": {"max": 19.5011, "min": 0.0, "ppm": 2170.4062, "unit": "%"},
-    "p1": {"max": 5.3704, "min": 5.3062, "ppm": 129.9134, "unit": "bar"},
-    "p2": {"max": 10.7396, "min": 10.5863, "ppm": 310.2139, "unit": "bar"}
+    "flow": {"max": "275.1067", "min": "0.0", "ppm": "2170.4062", "unit": "Kg/Hr"},
+    "opening": {"max": "19.5011", "min": "0.0", "ppm": "2170.4062", "unit": "%"},
+    "p1": {"max": "5.3704", "min": "5.3062", "ppm": "129.9134", "unit": "bar"},
+    "p2": {"max": "10.7396", "min": "10.5863", "ppm": "310.2139", "unit": "bar"}
 }
 
 # --- DATA CLEANING ---
@@ -39,7 +39,7 @@ def load_and_clean_data(file):
     return df, time_col
 
 # --- MAIN UI ---
-st.title("Mtrol Full-Cycle Raw Parameter Analysis")
+st.title("Mtrol Full-Cycle Parameter Analysis")
 
 uploaded_file = st.sidebar.file_uploader("Upload Mtrol Dataset (CSV)", type=["csv"])
 
@@ -54,38 +54,36 @@ if uploaded_file is not None:
 
     if available_params and temp_col:
         selected_param = st.sidebar.selectbox("🎯 Select Parameter to Plot", available_params)
-        
-        # Identify which parameter type we are looking at for the metrics display
         clean_key = next((k for k in ["flow", "opening", "p1", "p2"] if k in selected_param.lower()), "p1")
         unit = data_lookup[clean_key]["unit"]
 
-        # --- TOP METRICS (USING YOUR DATA) ---
+        # --- TOP METRICS (FORCE FULL VALUE STRINGS) ---
         st.subheader(f"📊 {device_mode} Global Specs for {selected_param}")
         m1, m2, m3, m4, m5 = st.columns(5)
         
+        # We display these as strings to prevent Streamlit from shortening them with "..."
         m1.metric(f"Max {selected_param}", f"{data_lookup[clean_key]['max']} {unit}")
         m2.metric(f"Min {selected_param}", f"{data_lookup[clean_key]['min']} {unit}")
         m3.metric("Max Chamber Temp", f"{df[temp_col].max():.2f}°C")
         m4.metric("Min Chamber Temp", f"{df[temp_col].min():.2f}°C")
-        m5.metric("Calculated PPM", f"{data_lookup[clean_key]['ppm']}")
+        # Displaying the full PPM value without truncation
+        m5.metric("Specified PPM", str(data_lookup[clean_key]['ppm']))
 
-        # --- RAW PARAMETER PLOT ---
+        # --- SYNCHRONIZED RAW DATA PLOT ---
         valid_df = df[[time_col, selected_param, temp_col]].dropna().copy()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         
-        # Primary Plot: The Raw Data (Not PPM)
+        # Primary Plot: Raw Parameter
         fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], 
-            y=valid_df[selected_param],
+            x=valid_df[time_col], y=valid_df[selected_param],
             name=f"Raw {selected_param} ({unit})",
             line=dict(color="#00CCFF", width=2)
         ), secondary_y=False)
 
         # Secondary Plot: Chamber Temp
         fig.add_trace(go.Scattergl(
-            x=valid_df[time_col], 
-            y=valid_df[temp_col],
+            x=valid_df[time_col], y=valid_df[temp_col],
             name="Chamber Temp (°C)",
             line=dict(color="#FFD700", width=1.5, dash='dot')
         ), secondary_y=True)
@@ -94,13 +92,14 @@ if uploaded_file is not None:
             title=f"<b>Synchronized Raw Data: {selected_param} vs Temperature</b>",
             template="plotly_dark", height=600,
             xaxis=dict(title="Time Progress", rangeslider=dict(visible=True)),
-            yaxis=dict(title=f"{selected_param} ({unit})"), 
-            yaxis2=dict(title="Temp (°C)", side='right', range=[0, 100]),
+            yaxis=dict(title=f"{selected_param} ({unit})", autorange=True), 
+            # TEMP RANGE: -20 to 70
+            yaxis2=dict(title="Temp (°C)", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig, use_container_width=True)
 
     else:
-        st.error("Missing columns. Ensure 'Chamber Temp' and Mtrol parameters exist.")
+        st.error("Required columns missing.")
 else:
     st.info("Please upload a Mtrol CSV file.")
