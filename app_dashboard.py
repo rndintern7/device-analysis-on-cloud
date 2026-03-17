@@ -11,20 +11,20 @@ st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 # --- CUSTOM CSS FOR FONT SIZES & LOGO ALIGNMENT ---
 st.markdown("""
     <style>
-    /* Metric Label (Heading) Styling - Large and Bold */
+    /* Metric Label (Heading) Styling */
     [data-testid="stMetricLabel"] p {
         font-size: 18px !important;
         font-weight: bold !important;
         color: #FFFFFF !important;
         line-height: 1.2 !important;
     }
-    /* Metric Value (Number) Styling - Smaller to fit full string */
+    /* Metric Value (Number) Styling */
     [data-testid="stMetricValue"] div {
         font-size: 16px !important;
         color: #00CCFF !important;
         white-space: nowrap !important;
     }
-    /* Remove default padding to allow more space for numbers */
+    /* Container adjustment */
     [data-testid="stMetric"] {
         width: fit-content !important;
         padding-right: 10px !important;
@@ -45,7 +45,6 @@ with header_col2:
         st.write("*(Logo)*")
 
 # --- DATA CONSTANTS ---
-# Flow PPM set to None to trigger the dash display
 MT3_VALS = {
     "flow": {"max": 303.54, "min": 0.00, "ppm": None, "unit": "Kg/Hr"},
     "opening": {"max": 22.01, "min": 0.00, "ppm": 2449.99, "unit": "%"},
@@ -92,25 +91,17 @@ if uploaded_file is not None:
         unit = data_lookup[clean_key]["unit"]
 
         # --- DYNAMIC PPM LOGIC ---
-        # 1. Create dynamic header (e.g., "% opening PPM")
         ppm_header = f"{selected_param} PPM"
-        
-        # 2. Get PPM value and handle Flow Rate (None) with a dash
         raw_ppm = data_lookup[clean_key]["ppm"]
-        if raw_ppm is None:
-            ppm_display = "—"
-        else:
-            ppm_display = f"{float(raw_ppm):.2f}"
+        ppm_display = f"{float(raw_ppm):.2f}" if raw_ppm is not None else "—"
 
         # --- METRICS SECTION ---
         st.write("---")
         m1, m2, m3, m4, m5 = st.columns(5)
-        
         m1.metric(f"Max {selected_param}", f"{float(data_lookup[clean_key]['max']):.2f} {unit}")
         m2.metric(f"Min {selected_param}", f"{float(data_lookup[clean_key]['min']):.2f} {unit}")
         m3.metric("Max Chamber Temp", f"{df[temp_col].max():.2f}°C")
         m4.metric("Min Chamber Temp", f"{df[temp_col].min():.2f}°C")
-        # Displaying dynamic header and the dash or value
         m5.metric(ppm_header, ppm_display)
         st.write("---")
 
@@ -119,13 +110,27 @@ if uploaded_file is not None:
         start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name="Raw Data", line=dict(color="#00CCFF")), secondary_y=False)
-        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Temp", line=dict(dash='dot', color="#FFD700")), secondary_y=True)
+        
+        # Legend now shows the specific parameter name selected
+        fig.add_trace(go.Scattergl(
+            x=valid_df[time_col], 
+            y=valid_df[selected_param], 
+            name=f"{selected_param}", 
+            line=dict(color="#00CCFF", width=1.5)
+        ), secondary_y=False)
+
+        fig.add_trace(go.Scattergl(
+            x=valid_df[time_col], 
+            y=valid_df[temp_col], 
+            name="Chamber Temp", 
+            line=dict(color="#FFD700", width=1.5, dash='dot')
+        ), secondary_y=True)
 
         fig.update_layout(
             template="plotly_dark", height=600,
-            xaxis=dict(type='date', range=[start_time, end_time]),
-            yaxis2=dict(range=[-20, 70], dtick=10),
+            xaxis=dict(title="Time (March 13)", type='date', range=[start_time, end_time], rangeslider=dict(visible=True)),
+            yaxis=dict(title=f"{selected_param} ({unit})"),
+            yaxis2=dict(title="Temp (°C)", side='right', range=[-20, 70], dtick=10),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig, use_container_width=True)
