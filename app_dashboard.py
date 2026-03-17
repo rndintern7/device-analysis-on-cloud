@@ -118,7 +118,7 @@ if uploaded_file is not None:
         st.plotly_chart(fig, use_container_width=True)
 
         # --- RAW DATA TABLE ---
-        st.subheader("📁 Raw Dataset Explorer")
+        st.subheader("📁 Original Data ")
         st.dataframe(df, use_container_width=True)
             
 else:
