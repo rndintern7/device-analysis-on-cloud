@@ -11,14 +11,14 @@ st.set_page_config(page_title="Mtrol Precision Analytics", layout="wide")
 # --- CUSTOM CSS FOR FONT SIZES & LOGO ALIGNMENT ---
 st.markdown("""
     <style>
-    /* Metric Label (Heading) Styling - Increased to 18px */
+    /* Metric Label (Heading) Styling - Large and Bold */
     [data-testid="stMetricLabel"] p {
         font-size: 18px !important;
         font-weight: bold !important;
         color: #FFFFFF !important;
         line-height: 1.2 !important;
     }
-    /* Metric Value (Number) Styling - Decreased to 16px to prevent "..." */
+    /* Metric Value (Number) Styling - Smaller to fit full string */
     [data-testid="stMetricValue"] div {
         font-size: 16px !important;
         color: #00CCFF !important;
@@ -45,15 +45,16 @@ with header_col2:
         st.write("*(Logo)*")
 
 # --- DATA CONSTANTS ---
+# Flow PPM set to None to trigger the dash display
 MT3_VALS = {
-    "flow": {"max": 303.54, "min": 0.00, "ppm": 2449.99, "unit": "Kg/Hr"},
+    "flow": {"max": 303.54, "min": 0.00, "ppm": None, "unit": "Kg/Hr"},
     "opening": {"max": 22.01, "min": 0.00, "ppm": 2449.99, "unit": "%"},
     "p1": {"max": 10.60, "min": 0.00, "ppm": 21455.76, "unit": "bar"},
     "p2": {"max": 10.06, "min": 0.00, "ppm": 20355.54, "unit": "bar"}
 }
 
 MT4_VALS = {
-    "flow": {"max": 275.11, "min": 0.00, "ppm": 2170.41, "unit": "Kg/Hr"},
+    "flow": {"max": 275.11, "min": 0.00, "ppm": None, "unit": "Kg/Hr"},
     "opening": {"max": 19.50, "min": 0.00, "ppm": 2170.41, "unit": "%"},
     "p1": {"max": 5.37, "min": 5.31, "ppm": 129.91, "unit": "bar"},
     "p2": {"max": 10.74, "min": 10.59, "ppm": 310.21, "unit": "bar"}
@@ -90,6 +91,17 @@ if uploaded_file is not None:
         clean_key = next((k for k in ["flow", "opening", "p1", "p2"] if k in selected_param.lower()), "p1")
         unit = data_lookup[clean_key]["unit"]
 
+        # --- DYNAMIC PPM LOGIC ---
+        # 1. Create dynamic header (e.g., "% opening PPM")
+        ppm_header = f"{selected_param} PPM"
+        
+        # 2. Get PPM value and handle Flow Rate (None) with a dash
+        raw_ppm = data_lookup[clean_key]["ppm"]
+        if raw_ppm is None:
+            ppm_display = "—"
+        else:
+            ppm_display = f"{float(raw_ppm):.2f}"
+
         # --- METRICS SECTION ---
         st.write("---")
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -98,7 +110,8 @@ if uploaded_file is not None:
         m2.metric(f"Min {selected_param}", f"{float(data_lookup[clean_key]['min']):.2f} {unit}")
         m3.metric("Max Chamber Temp", f"{df[temp_col].max():.2f}°C")
         m4.metric("Min Chamber Temp", f"{df[temp_col].min():.2f}°C")
-        m5.metric("Specified PPM", f"{float(data_lookup[clean_key]['ppm']):.2f}")
+        # Displaying dynamic header and the dash or value
+        m5.metric(ppm_header, ppm_display)
         st.write("---")
 
         # --- PLOT ---
@@ -106,13 +119,14 @@ if uploaded_file is not None:
         start_time, end_time = valid_df[time_col].min(), valid_df[time_col].max()
         
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name="Raw Data"), secondary_y=False)
-        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Temp", line=dict(dash='dot')), secondary_y=True)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[selected_param], name="Raw Data", line=dict(color="#00CCFF")), secondary_y=False)
+        fig.add_trace(go.Scattergl(x=valid_df[time_col], y=valid_df[temp_col], name="Temp", line=dict(dash='dot', color="#FFD700")), secondary_y=True)
 
         fig.update_layout(
             template="plotly_dark", height=600,
             xaxis=dict(type='date', range=[start_time, end_time]),
-            yaxis2=dict(range=[-20, 70], dtick=10)
+            yaxis2=dict(range=[-20, 70], dtick=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig, use_container_width=True)
 else:
